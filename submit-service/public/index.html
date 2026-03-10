@@ -15,6 +15,11 @@
     <div class="container">
       <h1>Submit a Joke</h1>
 
+      <div id="typesLoading" class="status-row hidden">
+        <span class="spinner"></span>
+        <span>Loading joke types...</span>
+      </div>
+
       <form id="jokeForm" class="form">
         <textarea id="setup" placeholder="Setup" required></textarea>
 
@@ -24,53 +29,140 @@
 
         <input id="newType" placeholder="Or enter new type" />
 
-        <button type="submit">Submit Joke</button>
+        <button id="submitButton" type="submit">
+          <span id="submitButtonText">Submit Joke</span>
+          <span id="submitSpinner" class="spinner small hidden"></span>
+        </button>
       </form>
 
       <p id="result" class="result"></p>
     </div>
 
     <script>
-      async function loadTypes() {
-        const res = await fetch("/types");
-        const types = await res.json();
+      const form = document.getElementById("jokeForm");
+      const setupInput = document.getElementById("setup");
+      const punchlineInput = document.getElementById("punchline");
+      const typeSelect = document.getElementById("typeSelect");
+      const newTypeInput = document.getElementById("newType");
+      const resultEl = document.getElementById("result");
+      const typesLoadingEl = document.getElementById("typesLoading");
+      const submitButton = document.getElementById("submitButton");
+      const submitButtonText = document.getElementById("submitButtonText");
+      const submitSpinner = document.getElementById("submitSpinner");
 
-        const select = document.getElementById("typeSelect");
-
-        select.innerHTML = "";
-
-        types.forEach((t) => {
-          const option = document.createElement("option");
-
-          option.value = t.name;
-          option.textContent = t.name;
-
-          select.appendChild(option);
-        });
+      function showTypesLoading() {
+        typesLoadingEl.classList.remove("hidden");
       }
 
-      document.getElementById("jokeForm").addEventListener("submit", async (e) => {
+      function hideTypesLoading() {
+        typesLoadingEl.classList.add("hidden");
+      }
+
+      function setSubmitLoading(isLoading) {
+        submitButton.disabled = isLoading;
+
+        if (isLoading) {
+          submitButtonText.textContent = "Submitting...";
+          submitSpinner.classList.remove("hidden");
+        } else {
+          submitButtonText.textContent = "Submit Joke";
+          submitSpinner.classList.add("hidden");
+        }
+      }
+
+      function setResultMessage(message, type = "normal") {
+        resultEl.textContent = message || "";
+        resultEl.className = `result ${type}`;
+      }
+
+      async function loadTypes() {
+        showTypesLoading();
+        setResultMessage("");
+
+        try {
+          const res = await fetch("/types");
+          const payload = await res.json();
+
+          if (!res.ok) {
+            throw new Error(payload.error || "Failed to load joke types");
+          }
+
+          const types = payload.data || [];
+
+          typeSelect.innerHTML = "";
+
+          if (types.length === 0) {
+            const option = document.createElement("option");
+            option.value = "";
+            option.textContent = "No joke types available";
+            typeSelect.appendChild(option);
+          } else {
+            types.forEach((t) => {
+              const option = document.createElement("option");
+              option.value = t.name;
+              option.textContent = t.name;
+              typeSelect.appendChild(option);
+            });
+          }
+
+          if (payload.source === "cache") {
+            setResultMessage("Types loaded from cache because joke service is unavailable.", "info");
+          }
+        } catch (err) {
+          typeSelect.innerHTML = "";
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "Unable to load joke types";
+          typeSelect.appendChild(option);
+
+          setResultMessage(err.message || "Failed to load joke types.", "error");
+        } finally {
+          hideTypesLoading();
+        }
+      }
+
+      form.addEventListener("submit", async (e) => {
         e.preventDefault();
 
-        const setup = document.getElementById("setup").value;
-        const punchline = document.getElementById("punchline").value;
-
-        const dropdownType = document.getElementById("typeSelect").value;
-        const newType = document.getElementById("newType").value;
-
+        const setup = setupInput.value.trim();
+        const punchline = punchlineInput.value.trim();
+        const dropdownType = typeSelect.value;
+        const newType = newTypeInput.value.trim();
         const type = newType || dropdownType;
 
-        const res = await fetch("/submit", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ setup, punchline, type }),
-        });
+        if (!setup || !punchline || !type) {
+          setResultMessage("All fields are required.", "error");
+          return;
+        }
 
-        const data = await res.json();
+        setSubmitLoading(true);
+        setResultMessage("");
 
-        document.getElementById("result").textContent = data.message || data.error;
+        try {
+          const res = await fetch("/submit", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ setup, punchline, type }),
+          });
+
+          const data = await res.json();
+
+          if (!res.ok) {
+            throw new Error(data.error || "Failed to submit joke");
+          }
+
+          setResultMessage(data.message || "Joke submitted successfully.", "success");
+
+          setupInput.value = "";
+          punchlineInput.value = "";
+          newTypeInput.value = "";
+        } catch (err) {
+          setResultMessage(err.message || "Failed to submit joke.", "error");
+        } finally {
+          setSubmitLoading(false);
+        }
       });
 
       loadTypes();

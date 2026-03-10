@@ -7,8 +7,6 @@ RUN npm install
 
 COPY . .
 
-RUN mkdir -p /app/cache
-
-EXPOSE 3200
+EXPOSE 3001
 
 CMD ["node", "server.js"]

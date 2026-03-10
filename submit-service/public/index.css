@@ -6,25 +6,19 @@ body {
   margin: 0;
   font-family: "DM Sans", sans-serif;
   background: #f3f4f6;
-
   display: flex;
   align-items: center;
   justify-content: center;
-
   min-height: 100vh;
 }
 
 .container {
   background: white;
   padding: 32px;
-
   border-radius: 12px;
-
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-
   width: 100%;
   max-width: 500px;
-
   text-align: center;
 }
 
@@ -44,10 +38,8 @@ select,
 input {
   width: 100%;
   padding: 10px;
-
   border-radius: 6px;
   border: 1px solid #ccc;
-
   font-family: "DM Sans", sans-serif;
   font-size: 14px;
 }
@@ -59,25 +51,84 @@ textarea {
 
 button {
   background: #22c55e;
-
   color: white;
-
   border: none;
-
   padding: 10px 16px;
-
   border-radius: 6px;
-
   font-size: 16px;
-
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition:
+    background 0.2s ease,
+    opacity 0.2s ease;
 }
 
 button:hover {
   background: #16a34a;
 }
 
+button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: #4b5563;
+}
+
 .result {
   margin-top: 16px;
-  font-size: 16px;
+  font-size: 15px;
+  min-height: 24px;
+}
+
+.result.success {
+  color: #15803d;
+}
+
+.result.error {
+  color: #dc2626;
+}
+
+.result.info {
+  color: #2563eb;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #d1d5db;
+  border-top: 2px solid #22c55e;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.spinner.small {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+  border-top-color: white;
+  border-right-color: rgba(255, 255, 255, 0.4);
+  border-bottom-color: rgba(255, 255, 255, 0.4);
+  border-left-color: rgba(255, 255, 255, 0.4);
+}
+
+.hidden {
+  display: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

@@ -7,17 +7,19 @@ services:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: jokes_db
     ports:
-      - "3309:3306"
+      - "4002:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./db-init/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./db-init/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - jokes_network
 
   joke-service:
     build: ./joke-service
     container_name: joke_service
     restart: always
     ports:
-      - "3000:3000"
+      - "4000:3000"
     depends_on:
       - mysql
     environment:
@@ -26,21 +28,71 @@ services:
       JOKE_SERVICE_DB_PASSWORD: root
       JOKE_SERVICE_DB_NAME: jokes_db
       JOKE_SERVICE_PORT: 3000
+    networks:
+      - jokes_network
 
   submit-service:
     build: ./submit-service
     container_name: submit_service
     restart: always
     ports:
-      - "3200:3200"
+      - "4200:3200"
     depends_on:
       - mysql
+      - joke-service
+      - rabbitmq
     environment:
       SUBMIT_SERVICE_DB_HOST: mysql
       SUBMIT_SERVICE_DB_USER: root
       SUBMIT_SERVICE_DB_PASSWORD: root
       SUBMIT_SERVICE_DB_NAME: jokes_db
       SUBMIT_SERVICE_PORT: 3200
+      JOKE_SERVICE_URL: http://joke-service:3000
+      TYPES_CACHE_FILE: /app/cache/types-cache.json
+      RABBITMQ_URL: amqp://rabbitmq:5672
+      RABBITMQ_QUEUE: submitted_jokes
+    volumes:
+      - submit_cache:/app/cache
+    networks:
+      - jokes_network
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: jokes_rabbitmq
+    restart: always
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - jokes_network
+
+  etl-service:
+    build: ./etl-service
+    container_name: etl_service
+    restart: always
+    ports:
+      - "4001:3001"
+    depends_on:
+      - mysql
+      - rabbitmq
+    environment:
+      ETL_SERVICE_PORT: 3001
+      ETL_SERVICE_DB_HOST: mysql
+      ETL_SERVICE_DB_USER: root
+      ETL_SERVICE_DB_PASSWORD: root
+      ETL_SERVICE_DB_NAME: jokes_db
+      ETL_SERVICE_RABBITMQ_URL: amqp://rabbitmq:5672
+      ETL_SERVICE_RABBITMQ_QUEUE: submitted_jokes
+    networks:
+      - jokes_network
 
 volumes:
   mysql_data:
+  rabbitmq_data:
+  submit_cache:
+
+networks:
+  jokes_network:
+    driver: bridge
