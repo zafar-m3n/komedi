@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Joke Generator</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@100..1000&display=swap" rel="stylesheet" />
+
+    <link rel="stylesheet" href="/index.css" />
+  </head>
+
+  <body>
+    <div class="container">
+      <h1>Random Joke Generator</h1>
+
+      <select id="typeSelect"></select>
+
+      <button id="jokeBtn">Get Joke</button>
+
+      <div class="joke">
+        <p id="setup" class="setup"></p>
+        <p id="punchline" class="punchline"></p>
+      </div>
+    </div>
+
+    <script>
+      async function loadTypes() {
+        const res = await fetch("/types");
+        const types = await res.json();
+
+        const select = document.getElementById("typeSelect");
+        select.innerHTML = "";
+
+        const anyOption = document.createElement("option");
+        anyOption.value = "any";
+        anyOption.textContent = "Any";
+        select.appendChild(anyOption);
+
+        types.forEach((t) => {
+          const option = document.createElement("option");
+          option.value = t.name;
+          option.textContent = t.name;
+          select.appendChild(option);
+        });
+      }
+
+      async function getJoke() {
+        const type = document.getElementById("typeSelect").value;
+
+        const res = await fetch(`/joke/${type}`);
+        const data = await res.json();
+
+        const joke = data[0];
+
+        document.getElementById("setup").textContent = joke.setup;
+        document.getElementById("punchline").textContent = "";
+
+        setTimeout(() => {
+          document.getElementById("punchline").textContent = joke.punchline;
+        }, 3000);
+      }
+
+      document.getElementById("jokeBtn").addEventListener("click", getJoke);
+
+      loadTypes();
+    </script>
+  </body>
+</html>

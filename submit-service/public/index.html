@@ -1,0 +1,79 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Submit Joke</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@100..1000&display=swap" rel="stylesheet" />
+
+    <link rel="stylesheet" href="/index.css" />
+  </head>
+
+  <body>
+    <div class="container">
+      <h1>Submit a Joke</h1>
+
+      <form id="jokeForm" class="form">
+        <textarea id="setup" placeholder="Setup" required></textarea>
+
+        <textarea id="punchline" placeholder="Punchline" required></textarea>
+
+        <select id="typeSelect"></select>
+
+        <input id="newType" placeholder="Or enter new type" />
+
+        <button type="submit">Submit Joke</button>
+      </form>
+
+      <p id="result" class="result"></p>
+    </div>
+
+    <script>
+      async function loadTypes() {
+        const res = await fetch("/types");
+        const types = await res.json();
+
+        const select = document.getElementById("typeSelect");
+
+        select.innerHTML = "";
+
+        types.forEach((t) => {
+          const option = document.createElement("option");
+
+          option.value = t.name;
+          option.textContent = t.name;
+
+          select.appendChild(option);
+        });
+      }
+
+      document.getElementById("jokeForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        const setup = document.getElementById("setup").value;
+        const punchline = document.getElementById("punchline").value;
+
+        const dropdownType = document.getElementById("typeSelect").value;
+        const newType = document.getElementById("newType").value;
+
+        const type = newType || dropdownType;
+
+        const res = await fetch("/submit", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ setup, punchline, type }),
+        });
+
+        const data = await res.json();
+
+        document.getElementById("result").textContent = data.message || data.error;
+      });
+
+      loadTypes();
+    </script>
+  </body>
+</html>
