@@ -32,6 +32,7 @@ const MOD_TYPE_UPDATE_QUEUE = process.env.MOD_TYPE_UPDATE_QUEUE || "mod_type_upd
 let rabbitConnection = null;
 let rabbitChannel = null;
 let typeUpdateConsumerStarted = false;
+let reconnectTimer = null;
 
 async function ensureCacheDirectoryExists() {
   const cacheDir = path.dirname(TYPES_CACHE_FILE);
@@ -128,9 +129,6 @@ async function connectRabbitMQ() {
 
   rabbitConnection.on("error", (err) => {
     console.error("[SUBMIT] RabbitMQ connection error:", err.message);
-    rabbitConnection = null;
-    rabbitChannel = null;
-    typeUpdateConsumerStarted = false;
   });
 
   rabbitConnection.on("close", () => {
@@ -138,13 +136,21 @@ async function connectRabbitMQ() {
     rabbitConnection = null;
     rabbitChannel = null;
     typeUpdateConsumerStarted = false;
-
-    setTimeout(() => {
-      reconnectTypeUpdateConsumer();
-    }, 5000);
+    scheduleReconnect();
   });
 
   return rabbitChannel;
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer) {
+    return;
+  }
+
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+    await reconnectTypeUpdateConsumer();
+  }, 5000);
 }
 
 async function mergeTypeIntoCache(typeName) {
@@ -175,11 +181,11 @@ async function mergeTypeIntoCache(typeName) {
 }
 
 async function startTypeUpdateConsumer() {
-  const channel = await connectRabbitMQ();
-
   if (typeUpdateConsumerStarted) {
     return;
   }
+
+  const channel = await connectRabbitMQ();
 
   await channel.prefetch(1);
 
@@ -221,10 +227,7 @@ async function reconnectTypeUpdateConsumer() {
     await startTypeUpdateConsumer();
   } catch (err) {
     console.error("[SUBMIT] Reconnect failed:", err.message);
-
-    setTimeout(() => {
-      reconnectTypeUpdateConsumer();
-    }, 5000);
+    scheduleReconnect();
   }
 }
 
@@ -321,16 +324,15 @@ app.post("/submit", async (req, res) => {
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.listen(PORT, async () => {
+  console.log(`[SUBMIT] Service running on port ${PORT}`);
+  console.log(`[SUBMIT] Types cache file: ${TYPES_CACHE_FILE}`);
+
   try {
     await ensureTypesCacheExists();
     await startTypeUpdateConsumer();
-
-    console.log(`[SUBMIT] Service running on port ${PORT}`);
-    console.log(`[SUBMIT] Types cache file: ${TYPES_CACHE_FILE}`);
   } catch (err) {
     console.error("[SUBMIT] Startup warning:", err.message);
-    console.log(`[SUBMIT] Service running on port ${PORT}`);
-    console.log(`[SUBMIT] Types cache file: ${TYPES_CACHE_FILE}`);
+    scheduleReconnect();
   }
 });
 

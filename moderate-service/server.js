@@ -28,6 +28,7 @@ const MOD_TYPE_UPDATE_QUEUE = process.env.MOD_TYPE_UPDATE_QUEUE || "mod_type_upd
 let rabbitConnection = null;
 let rabbitChannel = null;
 let typeUpdateConsumerStarted = false;
+let reconnectTimer = null;
 
 async function ensureCacheDirectoryExists() {
   const cacheDir = path.dirname(TYPES_CACHE_FILE);
@@ -119,9 +120,6 @@ async function connectRabbitMQ() {
 
   rabbitConnection.on("error", (err) => {
     console.error("[MODERATE] RabbitMQ connection error:", err.message);
-    rabbitConnection = null;
-    rabbitChannel = null;
-    typeUpdateConsumerStarted = false;
   });
 
   rabbitConnection.on("close", () => {
@@ -129,13 +127,21 @@ async function connectRabbitMQ() {
     rabbitConnection = null;
     rabbitChannel = null;
     typeUpdateConsumerStarted = false;
-
-    setTimeout(() => {
-      reconnectTypeUpdateConsumer();
-    }, 5000);
+    scheduleReconnect();
   });
 
   return rabbitChannel;
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer) {
+    return;
+  }
+
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+    await reconnectTypeUpdateConsumer();
+  }, 5000);
 }
 
 async function mergeTypeIntoCache(typeName) {
@@ -166,11 +172,11 @@ async function mergeTypeIntoCache(typeName) {
 }
 
 async function startTypeUpdateConsumer() {
-  const channel = await connectRabbitMQ();
-
   if (typeUpdateConsumerStarted) {
     return;
   }
+
+  const channel = await connectRabbitMQ();
 
   await channel.prefetch(1);
 
@@ -212,10 +218,7 @@ async function reconnectTypeUpdateConsumer() {
     await startTypeUpdateConsumer();
   } catch (err) {
     console.error("[MODERATE] Reconnect failed:", err.message);
-
-    setTimeout(() => {
-      reconnectTypeUpdateConsumer();
-    }, 5000);
+    scheduleReconnect();
   }
 }
 
@@ -331,16 +334,15 @@ app.post("/moderated", async (req, res) => {
 });
 
 app.listen(PORT, async () => {
+  console.log(`[MODERATE] Service running on port ${PORT}`);
+  console.log(`[MODERATE] Types cache file: ${TYPES_CACHE_FILE}`);
+
   try {
     await ensureTypesCacheExists();
     await startTypeUpdateConsumer();
-
-    console.log(`[MODERATE] Service running on port ${PORT}`);
-    console.log(`[MODERATE] Types cache file: ${TYPES_CACHE_FILE}`);
   } catch (err) {
     console.error("[MODERATE] Startup warning:", err.message);
-    console.log(`[MODERATE] Service running on port ${PORT}`);
-    console.log(`[MODERATE] Types cache file: ${TYPES_CACHE_FILE}`);
+    scheduleReconnect();
   }
 });
 

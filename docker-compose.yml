@@ -96,7 +96,8 @@ services:
       ETL_SERVICE_DB_PASSWORD: root
       ETL_SERVICE_DB_NAME: jokes_db
       ETL_SERVICE_RABBITMQ_URL: amqp://rabbitmq:5672
-      ETL_SERVICE_RABBITMQ_QUEUE: moderated
+      ETL_SERVICE_MODERATED_QUEUE: moderated
+      ETL_SERVICE_TYPE_UPDATE_EXCHANGE: type_update
     ports:
       - "4001:3001"
     networks:

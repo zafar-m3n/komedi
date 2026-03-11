@@ -8,7 +8,10 @@ const app = express();
 
 const PORT = process.env.ETL_SERVICE_PORT || 3001;
 const RABBITMQ_URL = process.env.ETL_SERVICE_RABBITMQ_URL || "amqp://rabbitmq:5672";
-const RABBITMQ_QUEUE = process.env.ETL_SERVICE_RABBITMQ_QUEUE || "submitted_jokes";
+
+const MODERATED_QUEUE = process.env.ETL_SERVICE_MODERATED_QUEUE || "moderated";
+
+const TYPE_UPDATE_EXCHANGE = process.env.ETL_SERVICE_TYPE_UPDATE_EXCHANGE || "type_update";
 
 let rabbitConnection = null;
 let rabbitChannel = null;
@@ -18,9 +21,32 @@ app.get("/alive", (req, res) => {
   res.json({
     service: "etl-service",
     status: "alive",
-    queue: RABBITMQ_QUEUE,
+    queue: MODERATED_QUEUE,
+    typeUpdateExchange: TYPE_UPDATE_EXCHANGE,
   });
 });
+
+async function publishTypeUpdate(typeName) {
+  const cleanType = String(typeName || "").trim();
+
+  if (!cleanType) {
+    return;
+  }
+
+  const payload = {
+    type: cleanType,
+    emittedAt: new Date().toISOString(),
+    source: "etl-service",
+  };
+
+  await rabbitChannel.assertExchange(TYPE_UPDATE_EXCHANGE, "fanout", {
+    durable: true,
+  });
+
+  rabbitChannel.publish(TYPE_UPDATE_EXCHANGE, "", Buffer.from(JSON.stringify(payload)), { persistent: true });
+
+  console.log(`[ETL] Published type_update event for type="${cleanType}"`);
+}
 
 async function ensureTypeExists(connection, typeName) {
   const cleanType = String(typeName || "").trim();
@@ -32,18 +58,31 @@ async function ensureTypeExists(connection, typeName) {
   const [existingRows] = await connection.query("SELECT id FROM types WHERE name = ? LIMIT 1", [cleanType]);
 
   if (existingRows.length > 0) {
-    return existingRows[0].id;
+    return {
+      typeId: existingRows[0].id,
+      wasCreated: false,
+      type: cleanType,
+    };
   }
 
   try {
     const [insertResult] = await connection.query("INSERT INTO types (name) VALUES (?)", [cleanType]);
-    return insertResult.insertId;
+
+    return {
+      typeId: insertResult.insertId,
+      wasCreated: true,
+      type: cleanType,
+    };
   } catch (err) {
     if (err.code === "ER_DUP_ENTRY") {
       const [rowsAfterDuplicate] = await connection.query("SELECT id FROM types WHERE name = ? LIMIT 1", [cleanType]);
 
       if (rowsAfterDuplicate.length > 0) {
-        return rowsAfterDuplicate[0].id;
+        return {
+          typeId: rowsAfterDuplicate[0].id,
+          wasCreated: false,
+          type: cleanType,
+        };
       }
     }
 
@@ -65,12 +104,12 @@ async function insertJokeMessage(payload) {
   try {
     await connection.beginTransaction();
 
-    const typeId = await ensureTypeExists(connection, type);
+    const typeResult = await ensureTypeExists(connection, type);
 
     await connection.query("INSERT INTO jokes (setup, punchline, type_id) VALUES (?, ?, ?)", [
       setup,
       punchline,
-      typeId,
+      typeResult.typeId,
     ]);
 
     await connection.commit();
@@ -79,7 +118,8 @@ async function insertJokeMessage(payload) {
       setup,
       punchline,
       type,
-      typeId,
+      typeId: typeResult.typeId,
+      typeWasCreated: typeResult.wasCreated,
     };
   } catch (err) {
     await connection.rollback();
@@ -93,11 +133,15 @@ async function startConsumer() {
   rabbitConnection = await amqp.connect(RABBITMQ_URL);
   rabbitChannel = await rabbitConnection.createChannel();
 
-  await rabbitChannel.assertQueue(RABBITMQ_QUEUE, { durable: true });
+  await rabbitChannel.assertQueue(MODERATED_QUEUE, { durable: true });
+  await rabbitChannel.assertExchange(TYPE_UPDATE_EXCHANGE, "fanout", {
+    durable: true,
+  });
   await rabbitChannel.prefetch(1);
 
   console.log(`[ETL] Connected to RabbitMQ: ${RABBITMQ_URL}`);
-  console.log(`[ETL] Listening to queue: ${RABBITMQ_QUEUE}`);
+  console.log(`[ETL] Listening to queue: ${MODERATED_QUEUE}`);
+  console.log(`[ETL] Publishing type updates to exchange: ${TYPE_UPDATE_EXCHANGE}`);
 
   rabbitConnection.on("error", (err) => {
     console.error("[ETL] RabbitMQ connection error:", err.message);
@@ -114,7 +158,7 @@ async function startConsumer() {
     }, 5000);
   });
 
-  await rabbitChannel.consume(RABBITMQ_QUEUE, async (msg) => {
+  await rabbitChannel.consume(MODERATED_QUEUE, async (msg) => {
     if (!msg) {
       return;
     }
@@ -128,12 +172,17 @@ async function startConsumer() {
 
       const result = await insertJokeMessage(payload);
 
+      if (result.typeWasCreated) {
+        await publishTypeUpdate(result.type);
+      }
+
       rabbitChannel.ack(msg);
 
-      console.log(`[ETL] Message processed successfully | type="${result.type}" | typeId=${result.typeId}`);
+      console.log(
+        `[ETL] Message processed successfully | type="${result.type}" | typeId=${result.typeId} | newType=${result.typeWasCreated}`,
+      );
     } catch (err) {
       console.error("[ETL] Failed to process message:", err.message);
-
       rabbitChannel.nack(msg, false, true);
     }
   });
