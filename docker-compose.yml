@@ -13,21 +13,28 @@ services:
       - ./db-init/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
       - jokes_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   joke-service:
     build: ./joke-service
     container_name: joke_service
     restart: always
-    ports:
-      - "4000:3000"
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
     environment:
       JOKE_SERVICE_DB_HOST: mysql
       JOKE_SERVICE_DB_USER: root
       JOKE_SERVICE_DB_PASSWORD: root
       JOKE_SERVICE_DB_NAME: jokes_db
       JOKE_SERVICE_PORT: 3000
+    expose:
+      - "3000"
     networks:
       - jokes_network
 
@@ -35,12 +42,13 @@ services:
     build: ./submit-service
     container_name: submit_service
     restart: always
-    ports:
-      - "4200:3200"
     depends_on:
-      - mysql
-      - joke-service
-      - rabbitmq
+      mysql:
+        condition: service_healthy
+      joke-service:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
     environment:
       SUBMIT_SERVICE_DB_HOST: mysql
       SUBMIT_SERVICE_DB_USER: root
@@ -53,6 +61,8 @@ services:
       RABBITMQ_QUEUE: submitted_jokes
     volumes:
       - submit_cache:/app/cache
+    expose:
+      - "3200"
     networks:
       - jokes_network
 
@@ -72,11 +82,11 @@ services:
     build: ./etl-service
     container_name: etl_service
     restart: always
-    ports:
-      - "4001:3001"
     depends_on:
-      - mysql
-      - rabbitmq
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_started
     environment:
       ETL_SERVICE_PORT: 3001
       ETL_SERVICE_DB_HOST: mysql
@@ -85,6 +95,33 @@ services:
       ETL_SERVICE_DB_NAME: jokes_db
       ETL_SERVICE_RABBITMQ_URL: amqp://rabbitmq:5672
       ETL_SERVICE_RABBITMQ_QUEUE: submitted_jokes
+    ports:
+      - "4001:3001"
+    networks:
+      - jokes_network
+
+  kong:
+    image: kong:3.6
+    container_name: jokes_kong
+    restart: always
+    depends_on:
+      - joke-service
+      - submit-service
+      - rabbitmq
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /usr/local/kong/declarative/kong.yml
+      KONG_PROXY_LISTEN: "0.0.0.0:80"
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+    ports:
+      - "8445:80"
+      - "8001:8001"
+    volumes:
+      - ./kong/kong.yml:/usr/local/kong/declarative/kong.yml:ro
     networks:
       - jokes_network
 

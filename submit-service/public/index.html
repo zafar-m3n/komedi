@@ -8,7 +8,7 @@
 
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@100..1000&display=swap" rel="stylesheet" />
 
-    <link rel="stylesheet" href="/index.css" />
+    <link rel="stylesheet" href="/submit-ui/index.css" />
   </head>
 
   <body>
@@ -80,7 +80,7 @@
         setResultMessage("");
 
         try {
-          const res = await fetch("/types");
+          const res = await fetch("/submit/types");
           const payload = await res.json();
 
           if (!res.ok) {

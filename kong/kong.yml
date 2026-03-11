@@ -1,0 +1,71 @@
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: joke-service
+    url: http://joke-service:3000
+    routes:
+      - name: joke-root
+        paths:
+          - /
+        strip_path: false
+
+      - name: joke-types
+        paths:
+          - /types
+        strip_path: false
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 5
+              policy: local
+
+      - name: joke-random
+        paths:
+          - /joke
+        strip_path: false
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 5
+              policy: local
+
+  - name: submit-ui
+    url: http://submit-service:3200
+    routes:
+      - name: submit-ui-route
+        paths:
+          - /submit-ui
+        strip_path: true
+
+  - name: submit-types
+    url: http://submit-service:3200/types
+    routes:
+      - name: submit-types-route
+        paths:
+          - /submit/types
+        strip_path: true
+
+  - name: submit-api
+    url: http://submit-service:3200/submit
+    routes:
+      - name: submit-api-route
+        paths:
+          - /submit
+        strip_path: true
+
+  - name: submit-docs
+    url: http://submit-service:3200/docs
+    routes:
+      - name: submit-docs-route
+        paths:
+          - /docs
+        strip_path: true
+
+  - name: rabbitmq-admin
+    url: http://rabbitmq:15672
+    routes:
+      - name: rabbitmq-admin-route
+        paths:
+          - /mq-admin
+        strip_path: true
