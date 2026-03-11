@@ -15,27 +15,23 @@ async function getTypes() {
 async function getJokesByType(type, count = 1) {
   const db = await getMongoDb();
 
-  const pipeline = [];
+  const filter = type === "any" ? {} : { type };
 
-  if (type !== "any") {
-    pipeline.push({
-      $match: { type: type },
-    });
-  }
-
-  pipeline.push(
-    { $sample: { size: count } },
-    {
-      $project: {
-        _id: 0,
-        setup: 1,
-        punchline: 1,
-        type: 1,
+  const rows = await db
+    .collection("jokes")
+    .aggregate([
+      { $match: filter },
+      { $sample: { size: count } },
+      {
+        $project: {
+          _id: 0,
+          setup: 1,
+          punchline: 1,
+          type: 1,
+        },
       },
-    },
-  );
-
-  const rows = await db.collection("jokes").aggregate(pipeline).toArray();
+    ])
+    .toArray();
 
   return rows;
 }

@@ -1,0 +1,160 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: jokes_mongo
+    restart: always
+    ports:
+      - "4003:27017"
+    volumes:
+      - mongo_data:/data/db
+      - ./mongo-init/seed.js:/docker-entrypoint-initdb.d/seed.js:ro
+    networks:
+      - jokes_network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  joke-service:
+    build: ./joke-service
+    container_name: joke_service
+    restart: always
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      JOKE_SERVICE_DB_ENGINE: MONGO
+      JOKE_SERVICE_DB_HOST: mysql
+      JOKE_SERVICE_DB_USER: root
+      JOKE_SERVICE_DB_PASSWORD: root
+      JOKE_SERVICE_DB_NAME: jokes_db
+      JOKE_SERVICE_MONGO_URL: mongodb://mongo:27017
+      JOKE_SERVICE_MONGO_DB_NAME: jokes_db
+      JOKE_SERVICE_PORT: 3000
+    expose:
+      - "3000"
+    networks:
+      - jokes_network
+
+  submit-service:
+    build: ./submit-service
+    container_name: submit_service
+    restart: always
+    depends_on:
+      rabbitmq:
+        condition: service_started
+    environment:
+      SUBMIT_SERVICE_DB_HOST: mysql
+      SUBMIT_SERVICE_DB_USER: root
+      SUBMIT_SERVICE_DB_PASSWORD: root
+      SUBMIT_SERVICE_DB_NAME: jokes_db
+      SUBMIT_SERVICE_PORT: 3200
+      TYPES_CACHE_FILE: /app/cache/types-cache.json
+      INITIAL_TYPES_FILE: /app/defaults/types-cache.json
+      RABBITMQ_URL: amqp://rabbitmq:5672
+      SUBMIT_QUEUE: submit
+      MODERATED_QUEUE: moderated
+      TYPE_UPDATE_EXCHANGE: type_update
+      SUB_TYPE_UPDATE_QUEUE: sub_type_update
+      MOD_TYPE_UPDATE_QUEUE: mod_type_update
+    volumes:
+      - submit_cache:/app/cache
+    expose:
+      - "3200"
+    networks:
+      - jokes_network
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: jokes_rabbitmq
+    restart: always
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - jokes_network
+
+  etl-service:
+    build: ./etl-service
+    container_name: etl_service
+    restart: always
+    depends_on:
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_started
+    environment:
+      ETL_SERVICE_PORT: 3001
+      ETL_SERVICE_DB_HOST: mysql
+      ETL_SERVICE_DB_USER: root
+      ETL_SERVICE_DB_PASSWORD: root
+      ETL_SERVICE_DB_NAME: jokes_db
+      ETL_SERVICE_RABBITMQ_URL: amqp://rabbitmq:5672
+      ETL_SERVICE_MODERATED_QUEUE: moderated
+      ETL_SERVICE_TYPE_UPDATE_EXCHANGE: type_update
+    ports:
+      - "4001:3001"
+    networks:
+      - jokes_network
+
+  kong:
+    image: kong:3.6
+    container_name: jokes_kong
+    restart: always
+    depends_on:
+      - joke-service
+      - submit-service
+      - rabbitmq
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /usr/local/kong/declarative/kong.yml
+      KONG_PROXY_LISTEN: "0.0.0.0:80"
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+    ports:
+      - "8445:80"
+      - "8001:8001"
+    volumes:
+      - ./kong/kong.yml:/usr/local/kong/declarative/kong.yml:ro
+    networks:
+      - jokes_network
+
+  moderate-service:
+    build: ./moderate-service
+    container_name: moderate_service
+    restart: always
+    depends_on:
+      rabbitmq:
+        condition: service_started
+    environment:
+      MODERATE_SERVICE_PORT: 3100
+      TYPES_CACHE_FILE: /app/cache/types-cache.json
+      INITIAL_TYPES_FILE: /app/defaults/types-cache.json
+      RABBITMQ_URL: amqp://rabbitmq:5672
+      SUBMIT_QUEUE: submit
+      MODERATED_QUEUE: moderated
+      TYPE_UPDATE_EXCHANGE: type_update
+      MOD_TYPE_UPDATE_QUEUE: mod_type_update
+    volumes:
+      - moderate_cache:/app/cache
+    ports:
+      - "4100:3100"
+    networks:
+      - jokes_network
+
+volumes:
+  mongo_data:
+  rabbitmq_data:
+  submit_cache:
+  moderate_cache:
+
+networks:
+  jokes_network:
+    driver: bridge

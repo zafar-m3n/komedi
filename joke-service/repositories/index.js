@@ -1,6 +1,6 @@
 require("dotenv").config();
 
-const dbEngine = (process.env.DB_ENGINE || "MYSQL").toUpperCase();
+const dbEngine = (process.env.JOKE_SERVICE_DB_ENGINE || "MYSQL").toUpperCase();
 
 let repository;
 

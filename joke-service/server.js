@@ -46,5 +46,5 @@ app.get("/joke/:type", async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Joke service running on port ${PORT}`);
-  console.log(`Active DB engine: ${process.env.DB_ENGINE || "MYSQL"}`);
+  console.log(`Active DB engine: ${process.env.JOKE_SERVICE_DB_ENGINE || "MYSQL"}`);
 });
