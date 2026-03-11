@@ -17,7 +17,7 @@
 
       <div id="typesLoading" class="status-row hidden">
         <span class="spinner"></span>
-        <span>Loading joke types...</span>
+        <span>Loading cached joke types...</span>
       </div>
 
       <form id="jokeForm" class="form">
@@ -84,7 +84,7 @@
           const payload = await res.json();
 
           if (!res.ok) {
-            throw new Error(payload.error || "Failed to load joke types");
+            throw new Error(payload.error || "Failed to load cached joke types");
           }
 
           const types = payload.data || [];
@@ -94,8 +94,10 @@
           if (types.length === 0) {
             const option = document.createElement("option");
             option.value = "";
-            option.textContent = "No joke types available";
+            option.textContent = "No joke types available in cache";
             typeSelect.appendChild(option);
+
+            setResultMessage("No cached types available yet. You can still enter a new type.", "info");
           } else {
             types.forEach((t) => {
               const option = document.createElement("option");
@@ -103,10 +105,8 @@
               option.textContent = t.name;
               typeSelect.appendChild(option);
             });
-          }
 
-          if (payload.source === "cache") {
-            setResultMessage("Types loaded from cache because joke service is unavailable.", "info");
+            setResultMessage("Types loaded from local cache.", "info");
           }
         } catch (err) {
           typeSelect.innerHTML = "";
@@ -115,7 +115,7 @@
           option.textContent = "Unable to load joke types";
           typeSelect.appendChild(option);
 
-          setResultMessage(err.message || "Failed to load joke types.", "error");
+          setResultMessage(err.message || "Failed to load cached joke types.", "error");
         } finally {
           hideTypesLoading();
         }

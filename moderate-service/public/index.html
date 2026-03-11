@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Moderate Joke</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@100..1000&display=swap" rel="stylesheet" />
+
+    <link rel="stylesheet" href="/index.css" />
+  </head>
+
+  <body>
+    <div class="container">
+      <h1>Moderate Joke</h1>
+
+      <p class="subtitle">Review, edit, approve, or skip the next submitted joke.</p>
+
+      <div id="statusMessage" class="status info">Loading moderation queue...</div>
+
+      <form id="moderateForm" class="form hidden">
+        <label>
+          <span>Setup</span>
+          <textarea id="setup" required></textarea>
+        </label>
+
+        <label>
+          <span>Punchline</span>
+          <textarea id="punchline" required></textarea>
+        </label>
+
+        <label>
+          <span>Existing Types</span>
+          <select id="typeSelect"></select>
+        </label>
+
+        <label>
+          <span>Override / Edit Type</span>
+          <input id="typeInput" type="text" placeholder="Enter or edit type" />
+        </label>
+
+        <div class="actions">
+          <button type="submit" id="approveButton">Approve & Send</button>
+          <button type="button" id="skipButton" class="secondary">Skip / Reject</button>
+        </div>
+      </form>
+
+      <div id="emptyState" class="empty hidden">No jokes available right now. Polling every second...</div>
+    </div>
+
+    <script>
+      const form = document.getElementById("moderateForm");
+      const setupEl = document.getElementById("setup");
+      const punchlineEl = document.getElementById("punchline");
+      const typeSelectEl = document.getElementById("typeSelect");
+      const typeInputEl = document.getElementById("typeInput");
+      const approveButton = document.getElementById("approveButton");
+      const skipButton = document.getElementById("skipButton");
+      const statusMessageEl = document.getElementById("statusMessage");
+      const emptyStateEl = document.getElementById("emptyState");
+
+      let isBusy = false;
+      let pollTimer = null;
+      let hasLoadedJoke = false;
+
+      function setStatus(message, type = "info") {
+        statusMessageEl.textContent = message;
+        statusMessageEl.className = `status ${type}`;
+      }
+
+      function showForm() {
+        form.classList.remove("hidden");
+        emptyStateEl.classList.add("hidden");
+      }
+
+      function hideForm() {
+        form.classList.add("hidden");
+      }
+
+      function showEmptyState() {
+        emptyStateEl.classList.remove("hidden");
+      }
+
+      function hideEmptyState() {
+        emptyStateEl.classList.add("hidden");
+      }
+
+      function setBusy(state) {
+        isBusy = state;
+        approveButton.disabled = state;
+        skipButton.disabled = state;
+      }
+
+      function clearForm() {
+        setupEl.value = "";
+        punchlineEl.value = "";
+        typeInputEl.value = "";
+        typeSelectEl.value = "";
+      }
+
+      function startPolling() {
+        stopPolling();
+
+        pollTimer = setInterval(() => {
+          if (!isBusy && !hasLoadedJoke) {
+            fetchNextJoke();
+          }
+        }, 1000);
+      }
+
+      function stopPolling() {
+        if (pollTimer) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
+      }
+
+      async function loadTypes() {
+        try {
+          const res = await fetch("/types");
+          const payload = await res.json();
+
+          if (!res.ok) {
+            throw new Error(payload.error || "Failed to load types");
+          }
+
+          const types = payload.data || [];
+          typeSelectEl.innerHTML = "";
+
+          if (types.length === 0) {
+            const option = document.createElement("option");
+            option.value = "";
+            option.textContent = "No cached types available";
+            typeSelectEl.appendChild(option);
+            return;
+          }
+
+          const blankOption = document.createElement("option");
+          blankOption.value = "";
+          blankOption.textContent = "Keep / enter custom type";
+          typeSelectEl.appendChild(blankOption);
+
+          types.forEach((item) => {
+            const option = document.createElement("option");
+            option.value = item.name;
+            option.textContent = item.name;
+            typeSelectEl.appendChild(option);
+          });
+        } catch (err) {
+          setStatus(err.message || "Failed to load types", "error");
+        }
+      }
+
+      async function fetchNextJoke() {
+        if (isBusy || hasLoadedJoke) {
+          return;
+        }
+
+        try {
+          const res = await fetch("/moderate");
+          const payload = await res.json();
+
+          if (!res.ok) {
+            throw new Error(payload.error || "Failed to fetch joke");
+          }
+
+          if (!payload.available) {
+            hasLoadedJoke = false;
+            hideForm();
+            clearForm();
+            showEmptyState();
+            setStatus(payload.message || "No jokes available right now.", "info");
+            return;
+          }
+
+          const joke = payload.data || {};
+
+          setupEl.value = joke.setup || "";
+          punchlineEl.value = joke.punchline || "";
+          typeInputEl.value = joke.type || "";
+          typeSelectEl.value = "";
+
+          hasLoadedJoke = true;
+          stopPolling();
+          hideEmptyState();
+          showForm();
+          setStatus("Joke loaded for moderation.", "success");
+        } catch (err) {
+          hasLoadedJoke = false;
+          hideForm();
+          showEmptyState();
+          setStatus(err.message || "Failed to fetch joke", "error");
+        }
+      }
+
+      function resumePollingForNextJoke(message = "Checking for the next joke...") {
+        hasLoadedJoke = false;
+        clearForm();
+        hideForm();
+        showEmptyState();
+        setStatus(message, "info");
+        startPolling();
+        fetchNextJoke();
+      }
+
+      typeSelectEl.addEventListener("change", () => {
+        if (typeSelectEl.value) {
+          typeInputEl.value = typeSelectEl.value;
+        }
+      });
+
+      skipButton.addEventListener("click", async () => {
+        if (isBusy) {
+          return;
+        }
+
+        resumePollingForNextJoke("Joke skipped. Checking for the next one...");
+      });
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        const setup = setupEl.value.trim();
+        const punchline = punchlineEl.value.trim();
+        const selectedType = typeSelectEl.value.trim();
+        const editedType = typeInputEl.value.trim();
+        const type = editedType || selectedType;
+
+        if (!setup || !punchline || !type) {
+          setStatus("Setup, punchline, and type are required.", "error");
+          return;
+        }
+
+        try {
+          setBusy(true);
+          setStatus("Sending moderated joke...", "info");
+
+          const res = await fetch("/moderated", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ setup, punchline, type }),
+          });
+
+          const payload = await res.json();
+
+          if (!res.ok) {
+            throw new Error(payload.error || "Failed to publish moderated joke");
+          }
+
+          resumePollingForNextJoke(payload.message || "Joke approved and sent.");
+          statusMessageEl.className = "status success";
+        } catch (err) {
+          setStatus(err.message || "Failed to publish moderated joke", "error");
+        } finally {
+          setBusy(false);
+        }
+      });
+
+      async function init() {
+        await loadTypes();
+        hasLoadedJoke = false;
+        startPolling();
+        fetchNextJoke();
+      }
+
+      init();
+    </script>
+  </body>
+</html>

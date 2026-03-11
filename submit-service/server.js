@@ -15,14 +15,23 @@ app.use(express.json());
 app.use(express.static("public"));
 
 const PORT = process.env.SUBMIT_SERVICE_PORT || 3200;
-const JOKE_SERVICE_URL = process.env.JOKE_SERVICE_URL || "http://joke-service:3000";
+
 const TYPES_CACHE_FILE = process.env.TYPES_CACHE_FILE || path.join(__dirname, "cache", "types-cache.json");
 
+const INITIAL_TYPES_FILE = process.env.INITIAL_TYPES_FILE || path.join(__dirname, "defaults", "types-cache.json");
+
 const RABBITMQ_URL = process.env.RABBITMQ_URL || "amqp://rabbitmq:5672";
-const RABBITMQ_QUEUE = process.env.RABBITMQ_QUEUE || "submitted_jokes";
+
+const SUBMIT_QUEUE = process.env.SUBMIT_QUEUE || "submit";
+const MODERATED_QUEUE = process.env.MODERATED_QUEUE || "moderated";
+
+const TYPE_UPDATE_EXCHANGE = process.env.TYPE_UPDATE_EXCHANGE || "type_update";
+const SUB_TYPE_UPDATE_QUEUE = process.env.SUB_TYPE_UPDATE_QUEUE || "sub_type_update";
+const MOD_TYPE_UPDATE_QUEUE = process.env.MOD_TYPE_UPDATE_QUEUE || "mod_type_update";
 
 let rabbitConnection = null;
 let rabbitChannel = null;
+let typeUpdateConsumerStarted = false;
 
 async function ensureCacheDirectoryExists() {
   const cacheDir = path.dirname(TYPES_CACHE_FILE);
@@ -39,6 +48,56 @@ async function readTypesCache() {
   return JSON.parse(fileContent);
 }
 
+function normalizeTypes(types) {
+  if (!Array.isArray(types)) {
+    return [];
+  }
+
+  const seen = new Set();
+  const result = [];
+
+  for (const item of types) {
+    const name = typeof item === "string" ? item.trim() : String(item?.name || "").trim();
+
+    if (!name) {
+      continue;
+    }
+
+    const key = name.toLowerCase();
+
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push({ name });
+    }
+  }
+
+  result.sort((a, b) => a.name.localeCompare(b.name));
+
+  return result;
+}
+
+async function ensureTypesCacheExists() {
+  await ensureCacheDirectoryExists();
+
+  try {
+    await fs.access(TYPES_CACHE_FILE);
+    return;
+  } catch {
+    // cache file does not exist yet
+  }
+
+  try {
+    const initialContent = await fs.readFile(INITIAL_TYPES_FILE, "utf8");
+    const initialTypes = normalizeTypes(JSON.parse(initialContent));
+    await writeTypesCache(initialTypes);
+    console.log(`[SUBMIT] Created initial cache from ${INITIAL_TYPES_FILE}`);
+  } catch (err) {
+    console.warn("[SUBMIT] Could not load initial cache file:", err.message);
+    await writeTypesCache([]);
+    console.log("[SUBMIT] Created empty cache file");
+  }
+}
+
 async function connectRabbitMQ() {
   if (rabbitConnection && rabbitChannel) {
     return rabbitChannel;
@@ -47,70 +106,150 @@ async function connectRabbitMQ() {
   rabbitConnection = await amqp.connect(RABBITMQ_URL);
   rabbitChannel = await rabbitConnection.createChannel();
 
-  await rabbitChannel.assertQueue(RABBITMQ_QUEUE, {
+  await rabbitChannel.assertQueue(SUBMIT_QUEUE, { durable: true });
+  await rabbitChannel.assertQueue(MODERATED_QUEUE, { durable: true });
+
+  await rabbitChannel.assertExchange(TYPE_UPDATE_EXCHANGE, "fanout", {
     durable: true,
   });
 
-  console.log(`Connected to RabbitMQ at ${RABBITMQ_URL}`);
-  console.log(`Using queue: ${RABBITMQ_QUEUE}`);
+  await rabbitChannel.assertQueue(SUB_TYPE_UPDATE_QUEUE, { durable: true });
+  await rabbitChannel.bindQueue(SUB_TYPE_UPDATE_QUEUE, TYPE_UPDATE_EXCHANGE, "");
+
+  await rabbitChannel.assertQueue(MOD_TYPE_UPDATE_QUEUE, { durable: true });
+  await rabbitChannel.bindQueue(MOD_TYPE_UPDATE_QUEUE, TYPE_UPDATE_EXCHANGE, "");
+
+  console.log(`[SUBMIT] Connected to RabbitMQ: ${RABBITMQ_URL}`);
+  console.log(`[SUBMIT] Submit queue: ${SUBMIT_QUEUE}`);
+  console.log(`[SUBMIT] Moderated queue: ${MODERATED_QUEUE}`);
+  console.log(`[SUBMIT] Type update exchange: ${TYPE_UPDATE_EXCHANGE}`);
+  console.log(`[SUBMIT] Submit type update queue: ${SUB_TYPE_UPDATE_QUEUE}`);
+  console.log(`[SUBMIT] Moderate type update queue: ${MOD_TYPE_UPDATE_QUEUE}`);
 
   rabbitConnection.on("error", (err) => {
-    console.error("RabbitMQ connection error:", err.message);
+    console.error("[SUBMIT] RabbitMQ connection error:", err.message);
     rabbitConnection = null;
     rabbitChannel = null;
+    typeUpdateConsumerStarted = false;
   });
 
   rabbitConnection.on("close", () => {
-    console.warn("RabbitMQ connection closed");
+    console.warn("[SUBMIT] RabbitMQ connection closed");
     rabbitConnection = null;
     rabbitChannel = null;
+    typeUpdateConsumerStarted = false;
+
+    setTimeout(() => {
+      reconnectTypeUpdateConsumer();
+    }, 5000);
   });
 
   return rabbitChannel;
 }
 
+async function mergeTypeIntoCache(typeName) {
+  const cleanType = String(typeName || "").trim();
+
+  if (!cleanType) {
+    return false;
+  }
+
+  let existingTypes = [];
+
+  try {
+    existingTypes = normalizeTypes(await readTypesCache());
+  } catch {
+    existingTypes = [];
+  }
+
+  const alreadyExists = existingTypes.some((item) => item.name.toLowerCase() === cleanType.toLowerCase());
+
+  if (alreadyExists) {
+    return false;
+  }
+
+  const updatedTypes = normalizeTypes([...existingTypes, { name: cleanType }]);
+  await writeTypesCache(updatedTypes);
+
+  return true;
+}
+
+async function startTypeUpdateConsumer() {
+  const channel = await connectRabbitMQ();
+
+  if (typeUpdateConsumerStarted) {
+    return;
+  }
+
+  await channel.prefetch(1);
+
+  await channel.consume(SUB_TYPE_UPDATE_QUEUE, async (msg) => {
+    if (!msg) {
+      return;
+    }
+
+    const rawMessage = msg.content.toString();
+
+    try {
+      const payload = JSON.parse(rawMessage);
+      const updated = await mergeTypeIntoCache(payload.type);
+
+      if (updated) {
+        console.log(`[SUBMIT] Type cache updated from event: "${payload.type}"`);
+      } else {
+        console.log(`[SUBMIT] Type already present or invalid, skipped: "${payload.type || ""}"`);
+      }
+
+      channel.ack(msg);
+    } catch (err) {
+      console.error("[SUBMIT] Failed to process type_update event:", err.message);
+      channel.nack(msg, false, true);
+    }
+  });
+
+  typeUpdateConsumerStarted = true;
+  console.log("[SUBMIT] Listening for type_update events");
+}
+
+async function reconnectTypeUpdateConsumer() {
+  if (typeUpdateConsumerStarted) {
+    return;
+  }
+
+  try {
+    console.log("[SUBMIT] Attempting RabbitMQ reconnect...");
+    await startTypeUpdateConsumer();
+  } catch (err) {
+    console.error("[SUBMIT] Reconnect failed:", err.message);
+
+    setTimeout(() => {
+      reconnectTypeUpdateConsumer();
+    }, 5000);
+  }
+}
+
 /**
  * @swagger
- * /types:
+ * /submit/types:
  *   get:
- *     summary: Get all joke types
+ *     summary: Get all joke types from local cache
  *     responses:
  *       200:
- *         description: List of types
+ *         description: List of cached types
  */
 app.get("/types", async (req, res) => {
   try {
-    const response = await fetch(`${JOKE_SERVICE_URL}/types`);
-
-    if (!response.ok) {
-      throw new Error(`Joke service responded with status ${response.status}`);
-    }
-
-    const freshTypes = await response.json();
-
-    await writeTypesCache(freshTypes);
+    const cachedTypes = normalizeTypes(await readTypesCache());
 
     return res.json({
-      source: "joke-service",
-      data: freshTypes,
+      source: "cache",
+      data: cachedTypes,
     });
-  } catch (httpError) {
-    try {
-      const cachedTypes = await readTypesCache();
-
-      return res.json({
-        source: "cache",
-        data: cachedTypes,
-      });
-    } catch (cacheError) {
-      return res.status(503).json({
-        error: "Unable to fetch joke types from joke-service or cache",
-        details: {
-          jokeServiceError: httpError.message,
-          cacheError: cacheError.message,
-        },
-      });
-    }
+  } catch (err) {
+    return res.status(503).json({
+      error: "Unable to read local types cache",
+      details: err.message,
+    });
   }
 });
 
@@ -118,7 +257,7 @@ app.get("/types", async (req, res) => {
  * @swagger
  * /submit:
  *   post:
- *     summary: Submit a new joke
+ *     summary: Submit a new joke for moderation
  *     requestBody:
  *       required: true
  *       content:
@@ -134,7 +273,7 @@ app.get("/types", async (req, res) => {
  *                 type: string
  *     responses:
  *       202:
- *         description: Joke accepted and queued
+ *         description: Joke accepted and queued for moderation
  */
 app.post("/submit", async (req, res) => {
   try {
@@ -149,6 +288,7 @@ app.post("/submit", async (req, res) => {
       punchline: String(punchline).trim(),
       type: String(type).trim(),
       submittedAt: new Date().toISOString(),
+      status: "pending_moderation",
     };
 
     if (!payload.setup || !payload.punchline || !payload.type) {
@@ -157,7 +297,7 @@ app.post("/submit", async (req, res) => {
 
     const channel = await connectRabbitMQ();
 
-    const published = channel.sendToQueue(RABBITMQ_QUEUE, Buffer.from(JSON.stringify(payload)), { persistent: true });
+    const published = channel.sendToQueue(SUBMIT_QUEUE, Buffer.from(JSON.stringify(payload)), { persistent: true });
 
     if (!published) {
       return res.status(503).json({
@@ -166,8 +306,8 @@ app.post("/submit", async (req, res) => {
     }
 
     return res.status(202).json({
-      message: "Joke accepted and added to queue",
-      queue: RABBITMQ_QUEUE,
+      message: "Joke accepted and added to moderation queue",
+      queue: SUBMIT_QUEUE,
       data: payload,
     });
   } catch (err) {
@@ -182,14 +322,15 @@ app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.listen(PORT, async () => {
   try {
-    await ensureCacheDirectoryExists();
-    await connectRabbitMQ();
-    console.log(`Submit service running on port ${PORT}`);
-    console.log(`Types cache file: ${TYPES_CACHE_FILE}`);
+    await ensureTypesCacheExists();
+    await startTypeUpdateConsumer();
+
+    console.log(`[SUBMIT] Service running on port ${PORT}`);
+    console.log(`[SUBMIT] Types cache file: ${TYPES_CACHE_FILE}`);
   } catch (err) {
-    console.error("Startup warning:", err.message);
-    console.log(`Submit service running on port ${PORT}`);
-    console.log(`Types cache file: ${TYPES_CACHE_FILE}`);
+    console.error("[SUBMIT] Startup warning:", err.message);
+    console.log(`[SUBMIT] Service running on port ${PORT}`);
+    console.log(`[SUBMIT] Types cache file: ${TYPES_CACHE_FILE}`);
   }
 });
 
@@ -202,7 +343,22 @@ process.on("SIGINT", async () => {
       await rabbitConnection.close();
     }
   } catch (err) {
-    console.error("Error closing RabbitMQ connection:", err.message);
+    console.error("[SUBMIT] Error closing RabbitMQ connection:", err.message);
+  } finally {
+    process.exit(0);
+  }
+});
+
+process.on("SIGTERM", async () => {
+  try {
+    if (rabbitChannel) {
+      await rabbitChannel.close();
+    }
+    if (rabbitConnection) {
+      await rabbitConnection.close();
+    }
+  } catch (err) {
+    console.error("[SUBMIT] Error closing RabbitMQ connection:", err.message);
   } finally {
     process.exit(0);
   }

@@ -45,8 +45,6 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-      joke-service:
-        condition: service_started
       rabbitmq:
         condition: service_started
     environment:
@@ -55,10 +53,14 @@ services:
       SUBMIT_SERVICE_DB_PASSWORD: root
       SUBMIT_SERVICE_DB_NAME: jokes_db
       SUBMIT_SERVICE_PORT: 3200
-      JOKE_SERVICE_URL: http://joke-service:3000
       TYPES_CACHE_FILE: /app/cache/types-cache.json
+      INITIAL_TYPES_FILE: /app/defaults/types-cache.json
       RABBITMQ_URL: amqp://rabbitmq:5672
-      RABBITMQ_QUEUE: submitted_jokes
+      SUBMIT_QUEUE: submit
+      MODERATED_QUEUE: moderated
+      TYPE_UPDATE_EXCHANGE: type_update
+      SUB_TYPE_UPDATE_QUEUE: sub_type_update
+      MOD_TYPE_UPDATE_QUEUE: mod_type_update
     volumes:
       - submit_cache:/app/cache
     expose:
@@ -94,7 +96,7 @@ services:
       ETL_SERVICE_DB_PASSWORD: root
       ETL_SERVICE_DB_NAME: jokes_db
       ETL_SERVICE_RABBITMQ_URL: amqp://rabbitmq:5672
-      ETL_SERVICE_RABBITMQ_QUEUE: submitted_jokes
+      ETL_SERVICE_RABBITMQ_QUEUE: moderated
     ports:
       - "4001:3001"
     networks:
@@ -124,11 +126,32 @@ services:
       - ./kong/kong.yml:/usr/local/kong/declarative/kong.yml:ro
     networks:
       - jokes_network
+  moderate-service:
+    build: ./moderate-service
+    container_name: moderate_service
+    restart: always
+    depends_on:
+      rabbitmq:
+        condition: service_started
+    environment:
+      MODERATE_SERVICE_PORT: 3100
+      TYPES_CACHE_FILE: /app/cache/types-cache.json
+      INITIAL_TYPES_FILE: /app/defaults/types-cache.json
+      RABBITMQ_URL: amqp://rabbitmq:5672
+      SUBMIT_QUEUE: submit
+      MODERATED_QUEUE: moderated
+    volumes:
+      - moderate_cache:/app/cache
+    ports:
+      - "4100:3100"
+    networks:
+      - jokes_network
 
 volumes:
   mysql_data:
   rabbitmq_data:
   submit_cache:
+  moderate_cache:
 
 networks:
   jokes_network:

@@ -6,7 +6,7 @@ const options = {
     info: {
       title: "Submit Joke API",
       version: "1.0.0",
-      description: "API for submitting jokes",
+      description: "API for submitting jokes into the moderation pipeline",
     },
     servers: [
       {
