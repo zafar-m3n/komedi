@@ -22,8 +22,12 @@ const RABBITMQ_URL = process.env.RABBITMQ_URL || "amqp://rabbitmq:5672";
 const SUBMIT_QUEUE = process.env.SUBMIT_QUEUE || "submit";
 const MODERATED_QUEUE = process.env.MODERATED_QUEUE || "moderated";
 
+const TYPE_UPDATE_EXCHANGE = process.env.TYPE_UPDATE_EXCHANGE || "type_update";
+const MOD_TYPE_UPDATE_QUEUE = process.env.MOD_TYPE_UPDATE_QUEUE || "mod_type_update";
+
 let rabbitConnection = null;
 let rabbitChannel = null;
+let typeUpdateConsumerStarted = false;
 
 async function ensureCacheDirectoryExists() {
   const cacheDir = path.dirname(TYPES_CACHE_FILE);
@@ -100,23 +104,119 @@ async function connectRabbitMQ() {
   await rabbitChannel.assertQueue(SUBMIT_QUEUE, { durable: true });
   await rabbitChannel.assertQueue(MODERATED_QUEUE, { durable: true });
 
+  await rabbitChannel.assertExchange(TYPE_UPDATE_EXCHANGE, "fanout", {
+    durable: true,
+  });
+
+  await rabbitChannel.assertQueue(MOD_TYPE_UPDATE_QUEUE, { durable: true });
+  await rabbitChannel.bindQueue(MOD_TYPE_UPDATE_QUEUE, TYPE_UPDATE_EXCHANGE, "");
+
   console.log(`[MODERATE] Connected to RabbitMQ: ${RABBITMQ_URL}`);
   console.log(`[MODERATE] Submit queue: ${SUBMIT_QUEUE}`);
   console.log(`[MODERATE] Moderated queue: ${MODERATED_QUEUE}`);
+  console.log(`[MODERATE] Type update exchange: ${TYPE_UPDATE_EXCHANGE}`);
+  console.log(`[MODERATE] Moderate type update queue: ${MOD_TYPE_UPDATE_QUEUE}`);
 
   rabbitConnection.on("error", (err) => {
     console.error("[MODERATE] RabbitMQ connection error:", err.message);
     rabbitConnection = null;
     rabbitChannel = null;
+    typeUpdateConsumerStarted = false;
   });
 
   rabbitConnection.on("close", () => {
     console.warn("[MODERATE] RabbitMQ connection closed");
     rabbitConnection = null;
     rabbitChannel = null;
+    typeUpdateConsumerStarted = false;
+
+    setTimeout(() => {
+      reconnectTypeUpdateConsumer();
+    }, 5000);
   });
 
   return rabbitChannel;
+}
+
+async function mergeTypeIntoCache(typeName) {
+  const cleanType = String(typeName || "").trim();
+
+  if (!cleanType) {
+    return false;
+  }
+
+  let existingTypes = [];
+
+  try {
+    existingTypes = normalizeTypes(await readTypesCache());
+  } catch {
+    existingTypes = [];
+  }
+
+  const alreadyExists = existingTypes.some((item) => item.name.toLowerCase() === cleanType.toLowerCase());
+
+  if (alreadyExists) {
+    return false;
+  }
+
+  const updatedTypes = normalizeTypes([...existingTypes, { name: cleanType }]);
+  await writeTypesCache(updatedTypes);
+
+  return true;
+}
+
+async function startTypeUpdateConsumer() {
+  const channel = await connectRabbitMQ();
+
+  if (typeUpdateConsumerStarted) {
+    return;
+  }
+
+  await channel.prefetch(1);
+
+  await channel.consume(MOD_TYPE_UPDATE_QUEUE, async (msg) => {
+    if (!msg) {
+      return;
+    }
+
+    const rawMessage = msg.content.toString();
+
+    try {
+      const payload = JSON.parse(rawMessage);
+      const updated = await mergeTypeIntoCache(payload.type);
+
+      if (updated) {
+        console.log(`[MODERATE] Type cache updated from event: "${payload.type}"`);
+      } else {
+        console.log(`[MODERATE] Type already present or invalid, skipped: "${payload.type || ""}"`);
+      }
+
+      channel.ack(msg);
+    } catch (err) {
+      console.error("[MODERATE] Failed to process type_update event:", err.message);
+      channel.nack(msg, false, true);
+    }
+  });
+
+  typeUpdateConsumerStarted = true;
+  console.log("[MODERATE] Listening for type_update events");
+}
+
+async function reconnectTypeUpdateConsumer() {
+  if (typeUpdateConsumerStarted) {
+    return;
+  }
+
+  try {
+    console.log("[MODERATE] Attempting RabbitMQ reconnect...");
+    await startTypeUpdateConsumer();
+  } catch (err) {
+    console.error("[MODERATE] Reconnect failed:", err.message);
+
+    setTimeout(() => {
+      reconnectTypeUpdateConsumer();
+    }, 5000);
+  }
 }
 
 app.get("/types", async (req, res) => {
@@ -233,7 +333,7 @@ app.post("/moderated", async (req, res) => {
 app.listen(PORT, async () => {
   try {
     await ensureTypesCacheExists();
-    await connectRabbitMQ();
+    await startTypeUpdateConsumer();
 
     console.log(`[MODERATE] Service running on port ${PORT}`);
     console.log(`[MODERATE] Types cache file: ${TYPES_CACHE_FILE}`);

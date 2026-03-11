@@ -140,6 +140,8 @@ services:
       RABBITMQ_URL: amqp://rabbitmq:5672
       SUBMIT_QUEUE: submit
       MODERATED_QUEUE: moderated
+      TYPE_UPDATE_EXCHANGE: type_update
+      MOD_TYPE_UPDATE_QUEUE: mod_type_update
     volumes:
       - moderate_cache:/app/cache
     ports:
