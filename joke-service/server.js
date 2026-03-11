@@ -1,7 +1,8 @@
 const express = require("express");
 const cors = require("cors");
-const pool = require("./db");
 require("dotenv").config();
+
+const repository = require("./repositories");
 
 const app = express();
 
@@ -17,9 +18,10 @@ Returns all joke types
 */
 app.get("/types", async (req, res) => {
   try {
-    const [rows] = await pool.query("SELECT name FROM types");
+    const rows = await repository.getTypes();
     res.json(rows);
   } catch (err) {
+    console.error("GET /types failed:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -31,40 +33,18 @@ Returns random jokes
 app.get("/joke/:type", async (req, res) => {
   try {
     const type = req.params.type;
-    const count = parseInt(req.query.count) || 1;
+    const parsedCount = parseInt(req.query.count, 10);
+    const count = Number.isInteger(parsedCount) && parsedCount > 0 ? parsedCount : 1;
 
-    let query;
-    let params = [];
-
-    if (type === "any") {
-      query = `
-        SELECT setup, punchline, name AS type
-        FROM jokes
-        JOIN types ON jokes.type_id = types.id
-        ORDER BY RAND()
-        LIMIT ?
-      `;
-      params = [count];
-    } else {
-      query = `
-        SELECT setup, punchline, name AS type
-        FROM jokes
-        JOIN types ON jokes.type_id = types.id
-        WHERE types.name = ?
-        ORDER BY RAND()
-        LIMIT ?
-      `;
-      params = [type, count];
-    }
-
-    const [rows] = await pool.query(query, params);
-
+    const rows = await repository.getJokesByType(type, count);
     res.json(rows);
   } catch (err) {
+    console.error("GET /joke/:type failed:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
 app.listen(PORT, () => {
   console.log(`Joke service running on port ${PORT}`);
+  console.log(`Active DB engine: ${process.env.DB_ENGINE || "MYSQL"}`);
 });

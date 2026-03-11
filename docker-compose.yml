@@ -28,10 +28,13 @@ services:
       mysql:
         condition: service_healthy
     environment:
+      JOKE_SERVICE_DB_ENGINE: MYSQL
       JOKE_SERVICE_DB_HOST: mysql
       JOKE_SERVICE_DB_USER: root
       JOKE_SERVICE_DB_PASSWORD: root
       JOKE_SERVICE_DB_NAME: jokes_db
+      JOKE_SERVICE_MONGO_URL: mongodb://mongo:27017
+      JOKE_SERVICE_MONGO_DB_NAME: jokes_db
       JOKE_SERVICE_PORT: 3000
     expose:
       - "3000"
