@@ -2,17 +2,14 @@ _format_version: "3.0"
 _transform: true
 
 services:
-  - name: joke-service
+  - name: joke-api
     url: http://joke-service:3000
     routes:
-      - name: joke-root
-        paths:
-          - /
-        strip_path: false
-
       - name: joke-types
         paths:
           - /types
+        methods:
+          - GET
         strip_path: false
         plugins:
           - name: rate-limiting
@@ -23,6 +20,8 @@ services:
       - name: joke-random
         paths:
           - /joke
+        methods:
+          - GET
         strip_path: false
         plugins:
           - name: rate-limiting
@@ -30,13 +29,25 @@ services:
               minute: 5
               policy: local
 
-  - name: submit-ui
+  - name: joke-ui
+    url: http://joke-service:3000/
+    routes:
+      - name: joke-ui-route
+        paths:
+          - /joke/page
+        methods:
+          - GET
+        strip_path: true
+
+  - name: submit-api
     url: http://submit-service:3200
     routes:
-      - name: submit-ui-route
+      - name: submit-post
         paths:
-          - /submit-ui
-        strip_path: true
+          - /submit
+        methods:
+          - POST
+        strip_path: false
 
   - name: submit-types
     url: http://submit-service:3200/types
@@ -44,28 +55,63 @@ services:
       - name: submit-types-route
         paths:
           - /submit/types
-        strip_path: true
-
-  - name: submit-api
-    url: http://submit-service:3200/submit
-    routes:
-      - name: submit-api-route
-        paths:
-          - /submit
+        methods:
+          - GET
         strip_path: true
 
   - name: submit-docs
-    url: http://submit-service:3200/docs
+    url: http://submit-service:3200
     routes:
       - name: submit-docs-route
         paths:
           - /docs
+        methods:
+          - GET
+        strip_path: false
+
+  - name: submit-ui
+    url: http://submit-service:3200/
+    routes:
+      - name: submit-ui-route
+        paths:
+          - /submit/page
+        methods:
+          - GET
         strip_path: true
 
-  - name: rabbitmq-admin
-    url: http://rabbitmq:15672
+  - name: moderate-api
+    url: http://moderate-service:3100
     routes:
-      - name: rabbitmq-admin-route
+      - name: moderate-get
         paths:
-          - /mq-admin
+          - /moderate
+        methods:
+          - GET
+        strip_path: false
+
+      - name: moderated-post
+        paths:
+          - /moderated
+        methods:
+          - POST
+        strip_path: false
+
+  - name: moderate-types
+    url: http://moderate-service:3100/types
+    routes:
+      - name: moderate-types-route
+        paths:
+          - /moderate/types
+        methods:
+          - GET
+        strip_path: true
+
+  - name: moderate-ui
+    url: http://moderate-service:3100/
+    routes:
+      - name: moderate-ui-route
+        paths:
+          - /moderate/page
+        methods:
+          - GET
         strip_path: true

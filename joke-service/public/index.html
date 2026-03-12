@@ -9,7 +9,7 @@
 
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@100..1000&display=swap" rel="stylesheet" />
 
-    <link rel="stylesheet" href="/index.css" />
+    <link rel="stylesheet" href="/joke/page/index.css" />
   </head>
 
   <body>
@@ -28,39 +28,55 @@
 
     <script>
       async function loadTypes() {
-        const res = await fetch("/types");
-        const types = await res.json();
+        try {
+          const res = await fetch("/types");
+          const types = await res.json();
 
-        const select = document.getElementById("typeSelect");
-        select.innerHTML = "";
+          const select = document.getElementById("typeSelect");
+          select.innerHTML = "";
 
-        const anyOption = document.createElement("option");
-        anyOption.value = "any";
-        anyOption.textContent = "Any";
-        select.appendChild(anyOption);
+          const anyOption = document.createElement("option");
+          anyOption.value = "any";
+          anyOption.textContent = "Any";
+          select.appendChild(anyOption);
 
-        types.forEach((t) => {
-          const option = document.createElement("option");
-          option.value = t.name;
-          option.textContent = t.name;
-          select.appendChild(option);
-        });
+          types.forEach((t) => {
+            const option = document.createElement("option");
+            option.value = t.name;
+            option.textContent = t.name;
+            select.appendChild(option);
+          });
+        } catch (err) {
+          console.error("Failed to load types:", err);
+        }
       }
 
       async function getJoke() {
-        const type = document.getElementById("typeSelect").value;
+        try {
+          const type = document.getElementById("typeSelect").value;
 
-        const res = await fetch(`/joke/${type}`);
-        const data = await res.json();
+          const res = await fetch(`/joke/${type}`);
+          const data = await res.json();
 
-        const joke = data[0];
+          if (!Array.isArray(data) || data.length === 0) {
+            document.getElementById("setup").textContent = "No joke found.";
+            document.getElementById("punchline").textContent = "";
+            return;
+          }
 
-        document.getElementById("setup").textContent = joke.setup;
-        document.getElementById("punchline").textContent = "";
+          const joke = data[0];
 
-        setTimeout(() => {
-          document.getElementById("punchline").textContent = joke.punchline;
-        }, 3000);
+          document.getElementById("setup").textContent = joke.setup || "";
+          document.getElementById("punchline").textContent = "";
+
+          setTimeout(() => {
+            document.getElementById("punchline").textContent = joke.punchline || "";
+          }, 3000);
+        } catch (err) {
+          console.error("Failed to fetch joke:", err);
+          document.getElementById("setup").textContent = "Failed to load joke.";
+          document.getElementById("punchline").textContent = "";
+        }
       }
 
       document.getElementById("jokeBtn").addEventListener("click", getJoke);
