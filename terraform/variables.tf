@@ -50,5 +50,5 @@ variable "kong_vm_size" {
 
 variable "default_vm_size" {
   type        = string
-  description = "Default VM size for non-Kong VMs"
+  description = "Default VM size for the other VMs"
 }

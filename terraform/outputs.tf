@@ -18,14 +18,14 @@ output "joke_private_ip" {
   value = azurerm_network_interface.joke_nic.private_ip_address
 }
 
-output "moderate_private_ip" {
-  value = azurerm_network_interface.moderate_nic.private_ip_address
+output "rabbitmq_private_ip" {
+  value = azurerm_network_interface.rabbitmq_nic.private_ip_address
 }
 
 output "submit_private_ip" {
   value = azurerm_network_interface.submit_nic.private_ip_address
 }
 
-output "rabbitmq_private_ip" {
-  value = azurerm_network_interface.rabbitmq_nic.private_ip_address
+output "moderate_private_ip" {
+  value = azurerm_network_interface.moderate_nic.private_ip_address
 }

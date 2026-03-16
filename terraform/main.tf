@@ -116,7 +116,7 @@ resource "azurerm_virtual_network_peering" "malaysia_to_india" {
 
 # -----------------------------------
 # Public IP for Kong only
-# Kong moved to India
+# Kong in Central India
 # -----------------------------------
 resource "azurerm_public_ip" "kong_pip" {
   name                = "kong-public-ip"
@@ -130,7 +130,6 @@ resource "azurerm_public_ip" "kong_pip" {
 
 # -----------------------------------
 # NSG for Kong only
-# Kong moved to India
 # -----------------------------------
 resource "azurerm_network_security_group" "kong_nsg" {
   name                = "kong-vm-nsg"
@@ -185,7 +184,7 @@ resource "azurerm_network_security_rule" "kong_https" {
 # NICs
 # -----------------------------------
 
-# Kong now in India
+# Kong - Central India
 resource "azurerm_network_interface" "kong_nic" {
   name                = "kong-vm-nic"
   location            = var.india_location
@@ -207,6 +206,7 @@ resource "azurerm_network_interface_security_group_association" "kong_assoc" {
   network_security_group_id = azurerm_network_security_group.kong_nsg.id
 }
 
+# Joke - Indonesia
 resource "azurerm_network_interface" "joke_nic" {
   name                = "joke-db-etl-vm-nic"
   location            = var.indonesia_location
@@ -222,8 +222,9 @@ resource "azurerm_network_interface" "joke_nic" {
   tags = local.tags
 }
 
-resource "azurerm_network_interface" "moderate_nic" {
-  name                = "moderate-vm-nic"
+# RabbitMQ - Indonesia
+resource "azurerm_network_interface" "rabbitmq_nic" {
+  name                = "rabbitmq-vm-nic"
   location            = var.indonesia_location
   resource_group_name = azurerm_resource_group.rg.name
 
@@ -237,7 +238,7 @@ resource "azurerm_network_interface" "moderate_nic" {
   tags = local.tags
 }
 
-# Submit now in Malaysia
+# Submit - Malaysia
 resource "azurerm_network_interface" "submit_nic" {
   name                = "submit-vm-nic"
   location            = var.malaysia_location
@@ -253,17 +254,17 @@ resource "azurerm_network_interface" "submit_nic" {
   tags = local.tags
 }
 
-# RabbitMQ stays in India
-resource "azurerm_network_interface" "rabbitmq_nic" {
-  name                = "rabbitmq-vm-nic"
-  location            = var.india_location
+# Moderate - Malaysia
+resource "azurerm_network_interface" "moderate_nic" {
+  name                = "moderate-vm-nic"
+  location            = var.malaysia_location
   resource_group_name = azurerm_resource_group.rg.name
 
   ip_configuration {
     name                          = "internal"
-    subnet_id                     = azurerm_subnet.subnet_india.id
+    subnet_id                     = azurerm_subnet.subnet_malaysia.id
     private_ip_address_allocation = "Static"
-    private_ip_address            = "10.20.1.30"
+    private_ip_address            = "10.30.1.30"
   }
 
   tags = local.tags
@@ -273,7 +274,7 @@ resource "azurerm_network_interface" "rabbitmq_nic" {
 # Virtual Machines
 # -----------------------------------
 
-# Kong now in India
+# Kong - Central India
 resource "azurerm_linux_virtual_machine" "kong_vm" {
   name                = "kong-vm"
   resource_group_name = azurerm_resource_group.rg.name
@@ -307,6 +308,7 @@ resource "azurerm_linux_virtual_machine" "kong_vm" {
   tags = local.tags
 }
 
+# Joke - Indonesia
 resource "azurerm_linux_virtual_machine" "joke_vm" {
   name                = "joke-db-etl-vm"
   resource_group_name = azurerm_resource_group.rg.name
@@ -340,15 +342,16 @@ resource "azurerm_linux_virtual_machine" "joke_vm" {
   tags = local.tags
 }
 
-resource "azurerm_linux_virtual_machine" "moderate_vm" {
-  name                = "moderate-vm"
+# RabbitMQ - Indonesia
+resource "azurerm_linux_virtual_machine" "rabbitmq_vm" {
+  name                = "rabbitmq-vm"
   resource_group_name = azurerm_resource_group.rg.name
   location            = var.indonesia_location
   size                = var.default_vm_size
   admin_username      = var.admin_username
 
   network_interface_ids = [
-    azurerm_network_interface.moderate_nic.id
+    azurerm_network_interface.rabbitmq_nic.id
   ]
 
   disable_password_authentication = true
@@ -373,7 +376,7 @@ resource "azurerm_linux_virtual_machine" "moderate_vm" {
   tags = local.tags
 }
 
-# Submit now in Malaysia
+# Submit - Malaysia
 resource "azurerm_linux_virtual_machine" "submit_vm" {
   name                = "submit-vm"
   resource_group_name = azurerm_resource_group.rg.name
@@ -407,16 +410,16 @@ resource "azurerm_linux_virtual_machine" "submit_vm" {
   tags = local.tags
 }
 
-# RabbitMQ stays in India
-resource "azurerm_linux_virtual_machine" "rabbitmq_vm" {
-  name                = "rabbitmq-vm"
+# Moderate - Malaysia
+resource "azurerm_linux_virtual_machine" "moderate_vm" {
+  name                = "moderate-vm"
   resource_group_name = azurerm_resource_group.rg.name
-  location            = var.india_location
+  location            = var.malaysia_location
   size                = var.default_vm_size
   admin_username      = var.admin_username
 
   network_interface_ids = [
-    azurerm_network_interface.rabbitmq_nic.id
+    azurerm_network_interface.moderate_nic.id
   ]
 
   disable_password_authentication = true
