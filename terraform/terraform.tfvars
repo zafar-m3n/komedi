@@ -6,9 +6,10 @@ admin_username      = "azureuser"
 ssh_public_key_path = "C:/Users/ZAFARULLAH/.ssh/id_rsa.pub"
 kong_dns_label      = "zulq-jokes-kong"
 
-indonesia_location = "indonesiacentral"
+indonesia_location = "southeastasia"
 india_location     = "centralindia"
 malaysia_location  = "malaysiawest"
 
-kong_vm_size    = "Standard_B2pts_v2"
-default_vm_size = "Standard_B1s"
+kong_vm_size      = "Standard_B2pts_v2"
+indonesia_vm_size = "Standard_B2ats_v2"
+malaysia_vm_size  = "Standard_B2ats_v2"

@@ -116,7 +116,6 @@ resource "azurerm_virtual_network_peering" "malaysia_to_india" {
 
 # -----------------------------------
 # Public IP for Kong only
-# Kong in Central India
 # -----------------------------------
 resource "azurerm_public_ip" "kong_pip" {
   name                = "kong-public-ip"
@@ -181,6 +180,51 @@ resource "azurerm_network_security_rule" "kong_https" {
 }
 
 # -----------------------------------
+# NSGs for private VMs
+# -----------------------------------
+resource "azurerm_network_security_group" "indonesia_nsg" {
+  name                = "indonesia-private-vm-nsg"
+  location            = var.indonesia_location
+  resource_group_name = azurerm_resource_group.rg.name
+  tags                = local.tags
+}
+
+resource "azurerm_network_security_rule" "indonesia_allow_vnet_inbound" {
+  name                        = "Allow-VNet-Inbound"
+  priority                    = 100
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "*"
+  source_port_range           = "*"
+  destination_port_range      = "*"
+  source_address_prefix       = "VirtualNetwork"
+  destination_address_prefix  = "*"
+  resource_group_name         = azurerm_resource_group.rg.name
+  network_security_group_name = azurerm_network_security_group.indonesia_nsg.name
+}
+
+resource "azurerm_network_security_group" "malaysia_nsg" {
+  name                = "malaysia-private-vm-nsg"
+  location            = var.malaysia_location
+  resource_group_name = azurerm_resource_group.rg.name
+  tags                = local.tags
+}
+
+resource "azurerm_network_security_rule" "malaysia_allow_vnet_inbound" {
+  name                        = "Allow-VNet-Inbound"
+  priority                    = 100
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "*"
+  source_port_range           = "*"
+  destination_port_range      = "*"
+  source_address_prefix       = "VirtualNetwork"
+  destination_address_prefix  = "*"
+  resource_group_name         = azurerm_resource_group.rg.name
+  network_security_group_name = azurerm_network_security_group.malaysia_nsg.name
+}
+
+# -----------------------------------
 # NICs
 # -----------------------------------
 
@@ -206,7 +250,7 @@ resource "azurerm_network_interface_security_group_association" "kong_assoc" {
   network_security_group_id = azurerm_network_security_group.kong_nsg.id
 }
 
-# Joke - Indonesia
+# Joke - Southeast Asia
 resource "azurerm_network_interface" "joke_nic" {
   name                = "joke-db-etl-vm-nic"
   location            = var.indonesia_location
@@ -222,7 +266,12 @@ resource "azurerm_network_interface" "joke_nic" {
   tags = local.tags
 }
 
-# RabbitMQ - Indonesia
+resource "azurerm_network_interface_security_group_association" "joke_assoc" {
+  network_interface_id      = azurerm_network_interface.joke_nic.id
+  network_security_group_id = azurerm_network_security_group.indonesia_nsg.id
+}
+
+# RabbitMQ - Southeast Asia
 resource "azurerm_network_interface" "rabbitmq_nic" {
   name                = "rabbitmq-vm-nic"
   location            = var.indonesia_location
@@ -236,6 +285,11 @@ resource "azurerm_network_interface" "rabbitmq_nic" {
   }
 
   tags = local.tags
+}
+
+resource "azurerm_network_interface_security_group_association" "rabbitmq_assoc" {
+  network_interface_id      = azurerm_network_interface.rabbitmq_nic.id
+  network_security_group_id = azurerm_network_security_group.indonesia_nsg.id
 }
 
 # Submit - Malaysia
@@ -254,6 +308,11 @@ resource "azurerm_network_interface" "submit_nic" {
   tags = local.tags
 }
 
+resource "azurerm_network_interface_security_group_association" "submit_assoc" {
+  network_interface_id      = azurerm_network_interface.submit_nic.id
+  network_security_group_id = azurerm_network_security_group.malaysia_nsg.id
+}
+
 # Moderate - Malaysia
 resource "azurerm_network_interface" "moderate_nic" {
   name                = "moderate-vm-nic"
@@ -268,6 +327,11 @@ resource "azurerm_network_interface" "moderate_nic" {
   }
 
   tags = local.tags
+}
+
+resource "azurerm_network_interface_security_group_association" "moderate_assoc" {
+  network_interface_id      = azurerm_network_interface.moderate_nic.id
+  network_security_group_id = azurerm_network_security_group.malaysia_nsg.id
 }
 
 # -----------------------------------
@@ -301,19 +365,19 @@ resource "azurerm_linux_virtual_machine" "kong_vm" {
   source_image_reference {
     publisher = "Canonical"
     offer     = "0001-com-ubuntu-server-jammy"
-    sku       = "22_04-lts-gen2"
+    sku       = "22_04-lts-arm64"
     version   = "latest"
   }
 
   tags = local.tags
 }
 
-# Joke - Indonesia
+# Joke - Southeast Asia
 resource "azurerm_linux_virtual_machine" "joke_vm" {
   name                = "joke-db-etl-vm"
   resource_group_name = azurerm_resource_group.rg.name
   location            = var.indonesia_location
-  size                = var.default_vm_size
+  size                = var.indonesia_vm_size
   admin_username      = var.admin_username
 
   network_interface_ids = [
@@ -342,12 +406,12 @@ resource "azurerm_linux_virtual_machine" "joke_vm" {
   tags = local.tags
 }
 
-# RabbitMQ - Indonesia
+# RabbitMQ - Southeast Asia
 resource "azurerm_linux_virtual_machine" "rabbitmq_vm" {
   name                = "rabbitmq-vm"
   resource_group_name = azurerm_resource_group.rg.name
   location            = var.indonesia_location
-  size                = var.default_vm_size
+  size                = var.indonesia_vm_size
   admin_username      = var.admin_username
 
   network_interface_ids = [
@@ -381,7 +445,7 @@ resource "azurerm_linux_virtual_machine" "submit_vm" {
   name                = "submit-vm"
   resource_group_name = azurerm_resource_group.rg.name
   location            = var.malaysia_location
-  size                = var.default_vm_size
+  size                = var.malaysia_vm_size
   admin_username      = var.admin_username
 
   network_interface_ids = [
@@ -415,7 +479,7 @@ resource "azurerm_linux_virtual_machine" "moderate_vm" {
   name                = "moderate-vm"
   resource_group_name = azurerm_resource_group.rg.name
   location            = var.malaysia_location
-  size                = var.default_vm_size
+  size                = var.malaysia_vm_size
   admin_username      = var.admin_username
 
   network_interface_ids = [

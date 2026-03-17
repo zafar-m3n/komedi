@@ -30,7 +30,7 @@ variable "kong_dns_label" {
 
 variable "indonesia_location" {
   type        = string
-  description = "Azure region for Indonesia resources"
+  description = "Azure region for Southeast Asia resources"
 }
 
 variable "india_location" {
@@ -48,7 +48,12 @@ variable "kong_vm_size" {
   description = "VM size for Kong VM"
 }
 
-variable "default_vm_size" {
+variable "indonesia_vm_size" {
   type        = string
-  description = "Default VM size for the other VMs"
+  description = "VM size for Southeast Asia VMs"
+}
+
+variable "malaysia_vm_size" {
+  type        = string
+  description = "VM size for Malaysia VMs"
 }
